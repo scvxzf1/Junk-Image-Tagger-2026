@@ -1,0 +1,17 @@
+{
+  "channels": [],
+  "groups": [],
+  "scheduleGroups": [],
+  "tags": {},
+  "globalRules": {
+    "minChars": 200,
+    "maxChars": 200,
+    "autoRetry": true
+  },
+  "prompts": {
+    "system": [],
+    "user": []
+  },
+  "previewResults": [],
+  "labelLogs": []
+}

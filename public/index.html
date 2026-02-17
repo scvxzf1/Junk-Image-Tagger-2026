@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>打标器</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-icon"></div>
+          <div>
+            <p class="brand-title">打标器</p>
+            <p class="brand-subtitle">OpenAI-compatible Hub</p>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="nav-item active" data-target="channels">渠道管理</button>
+          <button class="nav-item" data-target="scheduler">调度组-渠道规则</button>
+          <button class="nav-item" data-target="files">文件目录管理</button>
+          <button class="nav-item" data-target="labeling">图像打标</button>
+          <button class="nav-item" data-target="retry">打标补全</button>
+          <button class="nav-item" data-target="label-logs">打标日志</button>
+          <button class="nav-item" data-target="prompts">提示词预设</button>
+          <button class="nav-item" data-target="tags">tag管理</button>
+          <button class="nav-item" data-target="config-center">配置中心</button>
+        </nav>
+        <div class="sidebar-footer">
+          <div class="status-dot"></div>
+          <span>端口 30101</span>
+          <span id="save-status" class="muted"></span>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section class="panel active" id="channels">
+          <header class="panel-header">
+            <div>
+              <h1>渠道管理</h1>
+              <p>集中管理 API 渠道与模型池，支持多 Key 轮询。</p>
+            </div>
+            <div class="badge">模型池: 2</div>
+          </header>
+
+          <div class="grid">
+            <div class="card">
+              <h2>添加渠道</h2>
+              <form id="channel-form">
+                <label>
+                  渠道名
+                  <input type="text" name="name" placeholder="如: 渠道 A" required />
+                </label>
+                <label>
+                  API URL
+                  <input type="url" name="apiUrl" placeholder="https://api.example.com" required />
+                </label>
+                <label>
+                  API Key 列表
+                  <textarea name="apiKeys" rows="3" placeholder="支持多个 Key，换行分隔"></textarea>
+                </label>
+                <button type="submit" class="primary">保存渠道</button>
+              </form>
+            </div>
+
+            <div class="card">
+              <h2>快捷获取模型列表</h2>
+              <div class="row">
+                <label>
+                  选择渠道
+                  <select id="model-channel"></select>
+                </label>
+                <button id="fetch-models" class="ghost" type="button">拉取模型</button>
+              </div>
+              <div class="chip-group" id="model-list"></div>
+              <p class="muted">选择渠道后可用模型将展示在此处。</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>渠道列表</h2>
+              <button id="clear-channels" class="ghost danger">清空所有渠道</button>
+            </div>
+            <div id="channel-table" class="table"></div>
+          </div>
+        </section>
+
+        <section class="panel" id="scheduler">
+          <header class="panel-header">
+            <div>
+              <h1>调度组-渠道规则</h1>
+              <p>定义调度策略、失败规则与快速测活。</p>
+            </div>
+          </header>
+
+          <div class="grid">
+            <div class="card">
+              <h2>全局规则</h2>
+              <label>
+                最小字符数
+                <input type="number" id="min-chars" value="200" />
+              </label>
+              <label>
+                最大字符数
+                <input type="number" id="max-chars" value="200" />
+              </label>
+              <label>
+                失败规则说明
+                <textarea rows="3" placeholder="低于 200 字自动重试并向下一级渠道蔓延"></textarea>
+              </label>
+              <label class="row">
+                <input type="checkbox" id="auto-retry" checked />
+                失败时自动重试，耗尽后切换到下一渠道
+              </label>
+              <button class="ghost" id="save-global-rules">保存规则</button>
+            </div>
+
+            <div class="card">
+              <h2>自定义调度组</h2>
+              <form id="schedule-form">
+                <label>
+                  调度组名称
+                  <input type="text" id="schedule-name" placeholder="例如: gemini" required />
+                </label>
+                <div class="row">
+                  <label>
+                    系统提示词注入
+                    <select id="system-inject">
+                      <option value="front">最前</option>
+                      <option value="back">最后</option>
+                    </select>
+                  </label>
+                  <label>
+                    用户提示词注入
+                    <select id="user-inject">
+                      <option value="front">最前</option>
+                      <option value="back">最后</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  系统注入内容
+                  <textarea id="system-inject-text" rows="3" placeholder="默认空白"></textarea>
+                </label>
+                <label>
+                  用户注入内容
+                  <textarea id="user-inject-text" rows="3" placeholder="默认空白"></textarea>
+                </label>
+                <div class="row">
+                  <button class="primary" type="submit">创建调度组</button>
+                  <button class="ghost" type="button" id="save-schedule-settings">保存注入设置</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>调度组列表</h2>
+              <div class="row">
+                <button class="ghost" id="toggle-group-list">展开列表</button>
+                <button class="ghost" id="duplicate-group">复制调度组</button>
+                <button class="ghost danger" id="delete-group">删除调度组</button>
+              </div>
+            </div>
+            <div id="schedule-group-list" class="stack is-collapsed"></div>
+            <p class="muted">可拖动排序稍后支持，目前使用上移/下移。</p>
+          </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>调度步骤</h2>
+                <div class="row">
+                  <button class="ghost" id="quick-health">渠道模型快速测活</button>
+                </div>
+              </div>
+            <div class="row compact">
+              <label>
+                选择调度组
+                <select id="schedule-group-select"></select>
+              </label>
+              <button class="ghost" id="edit-inject">编辑其他</button>
+              <button class="ghost" id="schedule-more">调度组参数</button>
+              <button class="ghost" id="add-schedule-step">添加调度步骤</button>
+            </div>
+            <div id="schedule-list" class="stack"></div>
+            <div id="health-results" class="stack"></div>
+            <p class="muted">默认只显示一个，可继续添加更多调度。</p>
+          </div>
+        </section>
+
+        <section class="panel" id="files">
+          <header class="panel-header">
+            <div>
+              <h1>文件目录管理</h1>
+              <p>集中管理本地路径分组与预览配置。</p>
+            </div>
+          </header>
+
+          <div class="grid">
+            <div class="card">
+              <h2>文件分组</h2>
+              <form id="group-form">
+                <label>
+                  路径
+                  <div class="row"> 
+                     <input type="text" name="path" id="folder-path-input" placeholder="/data/images" required />
+                     <button type="button" class="ghost" onclick="openFolderSelect()">📂 选择文件夹</button>
+                   </div>
+                </label>
+                <label>
+                  备注
+                  <input type="text" name="note" placeholder="文件分组说明" />
+                </label>
+                <button type="submit" class="primary">添加分组</button>
+              </form>
+              <div id="group-list" class="stack"></div>
+            </div>
+
+            <div class="card">
+              <h2>预览参数</h2>
+              <label>
+                比例
+                <select>
+                  <option>1:1</option>
+                  <option>4:3</option>
+                  <option>16:9</option>
+                </select>
+              </label>
+              <label>
+                分辨率单边最大
+                <input type="number" value="1024" />
+              </label>
+              <label>
+                预览窗口</label>
+              <div class="preview-box">
+                <div class="preview-placeholder">预览区域 (固定高度，可滚动)</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="labeling">
+          <header class="panel-header">
+            <div>
+              <h1>图像打标</h1>
+              <p>快速选择目录打标，实时预览和批量保存。</p>
+            </div>
+          </header>
+
+          <div class="grid">
+            <div class="card">
+              <h2>打标参数</h2>
+              <label>
+                选择文件分组
+                <select id="label-group"></select>
+              </label>
+              <label>
+                选择调度组
+                <select id="label-schedule"></select>
+              </label>
+              <label>
+                系统提示词预设
+                <div class="row compact">
+                  <select id="label-system-preset"></select>
+                  <button class="ghost" id="apply-system-preset">套用</button>
+                </div>
+              </label>
+              <label>
+                系统提示词
+                <textarea id="label-system-text" rows="3" placeholder="系统提示词"></textarea>
+              </label>
+              <label>
+                用户提示词预设
+                <div class="row compact">
+                  <select id="label-user-preset"></select>
+                  <button class="ghost" id="apply-user-preset">套用</button>
+                </div>
+              </label>
+              <label>
+                用户提示词
+                <textarea id="label-user-text" rows="3" placeholder="用户提示词"></textarea>
+              </label>
+              <div class="row">
+                <button class="primary" id="label-start" type="button">开始打标</button>
+                <button class="ghost danger" id="label-stop" type="button">强制停止</button>
+              </div>
+              <p class="muted" id="label-status"></p>
+              <div class="row">
+                <span class="badge" id="label-monitor">队列 0 · 并发 0 · 完成 0/0</span>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="card">
+            <h2>批量保存分组</h2>
+            <div class="segmented small" role="tablist">
+              <button class="seg-item active" data-mode="group">文件分组</button>
+              <button class="seg-item" data-mode="manual">手动路径</button>
+            </div>
+            <div id="batch-save-group-panel">
+              <label>
+                选择文件分组
+                <select id="batch-save-group-select"></select>
+              </label>
+              <button class="primary" id="batch-save-group-btn" type="button">保存到所选分组</button>
+            </div>
+            <div id="batch-save-manual-panel" class="is-hidden">
+              <label>
+                保存路径
+                <input type="text" id="batch-save-path" placeholder="/mnt/data/output" />
+              </label>
+              <button class="primary" id="batch-save-manual-btn" type="button">保存到该路径</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>打标结果</h2>
+              <button class="ghost danger" id="clear-preview-results" type="button">清空</button>
+            </div>
+            <div class="stack result-list" id="preview-list"></div>
+            <p class="muted" id="preview-empty">暂无打标结果。</p>
+          </div>
+        </section>
+
+        <section class="panel" id="retry">
+          <header class="panel-header">
+            <div>
+              <h1>打标补全</h1>
+              <p>筛选打标失败的文件并重新打标。</p>
+            </div>
+          </header>
+
+          <div class="grid">
+            <div class="card">
+              <h2>补全参数</h2>
+              <label>
+                选择文件分组
+                <select id="retry-group"></select>
+              </label>
+              <label>
+                选择调度组
+                <select id="retry-schedule"></select>
+              </label>
+              <label>
+                失败阈值(字符数少于)
+                <input type="number" id="retry-min-chars" value="40" min="1" />
+              </label>
+              <label>
+                系统提示词
+                <div class="row compact">
+                  <select id="retry-system-preset"></select>
+                  <button class="ghost" id="apply-retry-system-preset" type="button">套用</button>
+                </div>
+                <textarea id="retry-system-text" rows="3" placeholder="系统提示词"></textarea>
+              </label>
+              <label>
+                用户提示词
+                <div class="row compact">
+                  <select id="retry-user-preset"></select>
+                  <button class="ghost" id="apply-retry-user-preset" type="button">套用</button>
+                </div>
+                <textarea id="retry-user-text" rows="3" placeholder="用户提示词"></textarea>
+              </label>
+              <div class="row">
+                <button class="primary" id="retry-start" type="button">开始补全</button>
+                <button class="ghost danger" id="retry-stop" type="button">强制停止</button>
+              </div>
+              <p class="muted" id="retry-status"></p>
+              <div class="row">
+                <span class="badge" id="retry-monitor">队列 0 · 并发 0 · 完成 0/0</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>补全结果</h2>
+              <div class="row compact">
+                <button class="ghost" id="save-retry-results" type="button">保存到当前分组</button>
+                <button class="ghost danger" id="clear-retry-results" type="button">清空</button>
+              </div>
+            </div>
+            <div class="stack result-list" id="retry-list"></div>
+            <p class="muted" id="retry-empty">暂无补全结果。</p>
+          </div>
+        </section>
+
+        <section class="panel" id="label-logs">
+          <header class="panel-header">
+            <div>
+              <h1>打标日志</h1>
+              <p>记录每次打标的完整参数、结果与耗时。</p>
+            </div>
+          </header>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>日志列表</h2>
+              <button class="ghost danger" id="clear-label-logs" type="button">清空</button>
+            </div>
+            <div class="stack" id="label-log-list"></div>
+            <p class="muted" id="label-log-empty">暂无打标日志。</p>
+          </div>
+        </section>
+
+        <section class="panel" id="prompts">
+          <header class="panel-header">
+            <div>
+              <h1>提示词预设</h1>
+              <p>分别管理系统提示词与用户提示词模板。</p>
+            </div>
+          </header>
+
+          <div class="grid">
+            <div class="card">
+              <h2>新增预设</h2>
+              <div class="segmented" role="tablist">
+                <button class="seg-item active" data-mode="system">系统提示词</button>
+                <button class="seg-item" data-mode="user">用户提示词</button>
+              </div>
+              <p class="muted" id="prompt-mode-label">当前保存到：系统提示词</p>
+              <label>
+                预设名称
+                <input type="text" id="prompt-name" placeholder="例如: 人物写实" />
+              </label>
+              <label>
+                预设内容
+                <textarea id="prompt-content" rows="5" placeholder="提示词内容"></textarea>
+              </label>
+              <div class="row">
+                <button class="primary" id="save-prompt" type="button">保存预设</button>
+                <button class="ghost" id="clear-prompt" type="button">清空表单</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>预设列表</h2>
+                <div class="segmented small" role="tablist">
+                  <button class="seg-item active" data-mode="system">系统</button>
+                  <button class="seg-item" data-mode="user">用户</button>
+                </div>
+              </div>
+              <p class="muted" id="prompt-save-status"></p>
+              <div class="stack" id="prompt-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <div class="modal is-hidden" id="schedule-more-modal">
+          <div class="modal-content">
+            <div class="card-header">
+              <h2>调度组参数</h2>
+              <button class="ghost" id="schedule-more-close">关闭</button>
+            </div>
+            <label>
+              调度组并发数
+              <input type="number" id="schedule-concurrency" min="1" value="1" />
+            </label>
+            <label>
+              调度组最大超时(秒)
+              <input type="number" id="schedule-timeout" min="1" value="60" />
+            </label>
+            <div class="row">
+              <button class="primary" id="schedule-more-save">保存</button>
+              <button class="ghost" id="schedule-more-cancel">取消</button>
+            </div>
+          </div>
+        </div>
+
+        <section class="panel" id="tags">
+          <header class="panel-header">
+            <div>
+              <h1>tag 管理</h1>
+              <p>编辑与管理标签。</p>
+            </div>
+          </header>
+
+          <div class="grid">
+            <div class="card">
+              <h2>标签编辑</h2>
+              <label>
+                选择文件分组
+                <select id="tag-group"></select>
+              </label>
+              <div class="row compact">
+                <button class="ghost" id="tag-reload" type="button">重新加载</button>
+                <span class="muted" id="tag-status"></span>
+              </div>
+              <div class="tag-toolbar">
+                <input id="tag-input" type="text" placeholder="输入标签，回车添加" />
+                <select id="tag-dedupe-mode">
+                  <option value="strict">区分大小写去重</option>
+                  <option value="insensitive">忽略大小写去重</option>
+                </select>
+                <button class="primary" id="add-tag">添加标签</button>
+                <button class="ghost" id="save-tag" type="button">保存标签</button>
+                <button class="ghost" id="undo-tag" type="button">撤回</button>
+              </div>
+              <div class="tag-toolbar">
+                <input id="tag-replace-from" type="text" value="; " placeholder="查找内容" />
+                <input id="tag-replace-to" type="text" value=", " placeholder="替换为" />
+                <button class="ghost" id="replace-tag-text" type="button">一键替换</button>
+                <button class="ghost" id="replace-tag-text-all" type="button">全局替换并保存</button>
+              </div>
+              <div class="tag-editor" id="tag-editor">
+              </div>
+              <p class="muted" id="tag-empty">暂无标签，请先添加。</p>
+              <p class="muted">双击编辑，回车保存。</p>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>tag 结果预览</h2>
+              </div>
+              <div class="stack result-list" id="tag-preview-list"></div>
+              <p class="muted" id="tag-preview-empty">暂无 tag 结果。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="config-center">
+          <header class="panel-header">
+            <div>
+              <h1>配置中心</h1>
+              <p>集中查看配置概览与一致性诊断（只读）。</p>
+            </div>
+          </header>
+
+          <div class="card config-center-actions" id="config-center-actions">
+            <div class="row">
+              <button class="ghost" data-action="refresh-all" type="button">刷新全部</button>
+              <button class="ghost" data-action="refresh-overview" type="button">仅刷新概览</button>
+              <button class="ghost" data-action="refresh-diagnostics" type="button">仅刷新诊断</button>
+              <button class="ghost" data-action="export-state" type="button">导出配置</button>
+              <button class="ghost" data-action="import-state" type="button">导入配置</button>
+              <button class="ghost danger" data-action="clear-state" type="button">清空配置</button>
+              <span class="muted" id="config-center-status"></span>
+            </div>
+            <input id="config-import-input" type="file" accept=".json,application/json" hidden />
+          </div>
+
+          <div class="grid config-center-grid">
+            <div class="card">
+              <div class="card-header">
+                <h2>配置概览</h2>
+                <span class="muted" id="config-overview-summary"></span>
+              </div>
+              <div class="stack" id="config-overview-list"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>配置诊断</h2>
+                <span class="muted" id="config-diagnostics-summary"></span>
+              </div>
+              <div class="stack" id="config-diagnostics-list"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+<script>
+  async function openFolderSelect() {
+    const btn = document.querySelector('button[onclick="openFolderSelect()"]');
+    const input = document.getElementById('folder-path-input');
+    if (!btn || !input) return;
+    
+    const originalText = btn.innerText;
+    btn.disabled = true;
+    btn.innerText = "⏳ 打开中...";
+
+    try {
+      const response = await fetch('/api/select-folder');
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        console.error('选择文件夹失败:', data.error || response.statusText);
+        alert(`无法打开系统文件夹选择器，请手动输入路径。\n${data.error || response.statusText}`);
+        return;
+      }
+
+      if (data.path) {
+        input.value = data.path;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      } else if (data.canceled) {
+        console.log('用户取消了文件夹选择');
+      } else {
+        console.log('未选择文件夹');
+      }
+    } catch (error) {
+      console.error('选择文件夹出错:', error);
+      alert('调用系统窗口失败，请检查控制台日志。');
+    } finally {
+      btn.disabled = false;
+      btn.innerText = originalText;
+    }
+  }
+</script>
+  </body>
+</html>
