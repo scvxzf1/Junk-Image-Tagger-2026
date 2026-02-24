@@ -10,24 +10,49 @@
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar">
+      <button
+        id="sidebar-toggle"
+        class="sidebar-toggle"
+        type="button"
+        aria-label="toggle sidebar"
+        aria-controls="app-sidebar"
+        aria-expanded="false"
+      >
+        ☰ 菜单
+      </button>
+      <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+      <aside class="sidebar" id="app-sidebar">
         <div class="brand">
-          <div class="brand-icon"></div>
+          <div class="brand-icon brand-icon-placeholder"></div>
           <div>
-            <p class="brand-title">打标器</p>
-            <p class="brand-subtitle">OpenAI-compatible Hub</p>
+            <p class="brand-title">打标器-2026</p>
+            <p class="brand-subtitle">2026-2-24更新</p>
           </div>
         </div>
         <nav class="nav">
-          <button class="nav-item active" data-target="channels">渠道管理</button>
-          <button class="nav-item" data-target="scheduler">调度组-渠道规则</button>
-          <button class="nav-item" data-target="files">文件目录管理</button>
-          <button class="nav-item" data-target="labeling">图像打标</button>
+          <button class="nav-item active" data-target="labeling">图像打标</button>
           <button class="nav-item" data-target="retry">打标补全</button>
+          <button class="nav-item" data-target="files">文件目录管理</button>
+          <button class="nav-item" data-target="tags">Tag 管理</button>
           <button class="nav-item" data-target="label-logs">打标日志</button>
-          <button class="nav-item" data-target="prompts">提示词预设</button>
-          <button class="nav-item" data-target="tags">tag管理</button>
-          <button class="nav-item" data-target="config-center">配置中心</button>
+
+          <div class="nav-group is-collapsed" id="other-settings-group">
+            <button
+              class="nav-group-toggle"
+              id="other-settings-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="other-settings-menu"
+            >
+              其他设置
+            </button>
+            <div class="nav-submenu" id="other-settings-menu">
+              <button class="nav-item" data-target="channels">渠道管理</button>
+              <button class="nav-item" data-target="scheduler">调度组-渠道规则</button>
+              <button class="nav-item" data-target="prompts">提示词预设</button>
+              <button class="nav-item" data-target="config-center">配置中心</button>
+            </div>
+          </div>
         </nav>
         <div class="sidebar-footer">
           <div class="status-dot"></div>
@@ -37,7 +62,7 @@
       </aside>
 
       <main class="main">
-        <section class="panel active" id="channels">
+        <section class="panel" id="channels">
           <header class="panel-header">
             <div>
               <h1>渠道管理</h1>
@@ -102,15 +127,15 @@
               <h2>全局规则</h2>
               <label>
                 最小字符数
-                <input type="number" id="min-chars" value="200" />
+                <input type="number" id="min-chars" value="50" />
               </label>
               <label>
                 最大字符数
-                <input type="number" id="max-chars" value="200" />
+                <input type="number" id="max-chars" value="2048" />
               </label>
               <label>
                 失败规则说明
-                <textarea rows="3" placeholder="低于 200 字自动重试并向下一级渠道蔓延"></textarea>
+                <textarea rows="3" placeholder="低于 50 字自动重试并向下一级渠道蔓延"></textarea>
               </label>
               <label class="row">
                 <input type="checkbox" id="auto-retry" checked />
@@ -244,7 +269,7 @@
           </div>
         </section>
 
-        <section class="panel" id="labeling">
+        <section class="panel active" id="labeling">
           <header class="panel-header">
             <div>
               <h1>图像打标</h1>
@@ -562,6 +587,80 @@
                 <span class="muted" id="config-diagnostics-summary"></span>
               </div>
               <div class="stack" id="config-diagnostics-list"></div>
+              <div class="config-theme-panel" id="config-theme-dock">
+                <div class="card-header compact">
+                  <h2>颜色与字体自定义</h2>
+                </div>
+                <div class="stack theme-form">
+                  <div class="theme-grid">
+                    <label class="theme-color-field">
+                      主色
+                      <input id="theme-accent-input" type="color" value="#6366f1" />
+                    </label>
+                    <label class="theme-color-field">
+                      辅色
+                      <input id="theme-accent-2-input" type="color" value="#8b5cf6" />
+                    </label>
+                    <label class="theme-color-field">
+                      背景起始色
+                      <input id="theme-bg-start-input" type="color" value="#f8faff" />
+                    </label>
+                    <label class="theme-color-field">
+                      背景结束色
+                      <input id="theme-bg-end-input" type="color" value="#eef2ff" />
+                    </label>
+                    <label class="theme-color-field">
+                      侧栏起始色
+                      <input id="theme-sidebar-start-input" type="color" value="#0f172a" />
+                    </label>
+                    <label class="theme-color-field">
+                      侧栏结束色
+                      <input id="theme-sidebar-end-input" type="color" value="#1e1b4b" />
+                    </label>
+                    <label class="theme-color-field">
+                      主文本色
+                      <input id="theme-ink-input" type="color" value="#0f172a" />
+                    </label>
+                    <label class="theme-color-field">
+                      次文本色
+                      <input id="theme-muted-input" type="color" value="#64748b" />
+                    </label>
+                  </div>
+
+                  <div class="theme-grid">
+                    <label class="theme-font-field">
+                      全局字体族
+                      <input id="theme-font-family-input" type="text" value="SF Pro Display, SF Pro Text, Neue Haas Grotesk, Helvetica Neue, sans-serif" />
+                    </label>
+                    <label class="theme-font-field">
+                      正文字号(px)
+                      <input id="theme-font-size-input" type="number" min="12" max="22" step="1" value="16" />
+                    </label>
+                    <label class="theme-font-field">
+                      标题字号(px)
+                      <input id="theme-heading-size-input" type="number" min="22" max="42" step="1" value="30" />
+                    </label>
+                    <label class="theme-font-field">
+                      行高
+                      <input id="theme-line-height-input" type="number" min="1.2" max="2.0" step="0.05" value="1.55" />
+                    </label>
+                  </div>
+
+                  <div class="row compact">
+                    <label class="theme-font-field theme-preset-field">
+                      快捷预设
+                      <select id="theme-preset-select"></select>
+                    </label>
+                    <button class="ghost" id="theme-apply-preset-btn" type="button">应用预设</button>
+                  </div>
+
+                  <div class="row compact">
+                    <button class="primary" id="theme-save-btn" type="button">保存主题</button>
+                    <button class="ghost" id="theme-reset-btn" type="button">恢复默认</button>
+                  </div>
+                  <p class="muted" id="theme-status"></p>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -608,3 +707,4 @@
 </script>
   </body>
 </html>
+

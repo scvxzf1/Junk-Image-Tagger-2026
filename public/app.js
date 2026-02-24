@@ -3,7 +3,7 @@ const state = {
   groups: [],
   scheduleGroups: [],
   tags: {},
-  globalRules: { minChars: 200, maxChars: 200, autoRetry: true },
+  globalRules: { minChars: 50, maxChars: 2048, autoRetry: true },
   prompts: { system: [], user: [] },
   previewResults: [],
   labelLogs: []
@@ -99,7 +99,7 @@ async function loadState() {
     state.groups = Array.isArray(data.groups) ? data.groups : [];
     state.scheduleGroups = Array.isArray(data.scheduleGroups) ? data.scheduleGroups : [];
     state.tags = data.tags && typeof data.tags === "object" ? data.tags : {};
-    state.globalRules = data.globalRules || { minChars: 200, maxChars: 200, autoRetry: true };
+    state.globalRules = data.globalRules || { minChars: 50, maxChars: 2048, autoRetry: true };
     if (data.prompts) {
       state.prompts = data.prompts;
     } else {
@@ -113,7 +113,7 @@ async function loadState() {
     state.groups = [];
     state.scheduleGroups = [];
     state.tags = {};
-    state.globalRules = { minChars: 200, maxChars: 200, autoRetry: true };
+    state.globalRules = { minChars: 50, maxChars: 2048, autoRetry: true };
     state.prompts = { system: [], user: [] };
     state.previewResults = [];
     state.labelLogs = [];
@@ -130,6 +130,236 @@ function queueSave() {
 
 const navButtons = document.querySelectorAll(".nav-item");
 const panels = document.querySelectorAll(".panel");
+const appShell = document.querySelector(".app-shell");
+const sidebarToggle = document.getElementById("sidebar-toggle");
+const sidebarBackdrop = document.getElementById("sidebar-backdrop");
+const otherSettingsGroup = document.getElementById("other-settings-group");
+const otherSettingsToggle = document.getElementById("other-settings-toggle");
+const MOBILE_SIDEBAR_BREAKPOINT = 960;
+const panelHelpConfig = {
+  labeling: {
+    title: "新手说明：图像打标",
+    points: [
+      "先在“文件目录管理”准备分组，再选择分组与调度组后启动任务。",
+      "点击“开始打标”后，前端会先读取图片列表，再按调度组调用后端分发。",
+      "结果先展示在当前页面，确认后再执行批量保存。"
+    ],
+    backend: ["/api/images", "/api/dispatch", "/api/save-results"]
+  },
+  retry: {
+    title: "新手说明：打标补全",
+    points: [
+      "用于补全已有文本过短或缺失的图片，不会影响已满足长度条件的结果。",
+      "先读取已有 tag 文本，再按你选的调度组重新补全。",
+      "完成后建议先抽查，再执行批量保存。"
+    ],
+    backend: ["/api/tag-results", "/api/dispatch", "/api/save-results"]
+  },
+  files: {
+    title: "新手说明：文件目录管理",
+    points: [
+      "这里维护“分组 → 文件夹路径”的映射，供打标、补全、Tag 管理复用。",
+      "优先保持一个分组对应一个稳定目录，避免任务中途改路径。",
+      "修改后会自动保存到系统状态，下次打开会恢复。"
+    ],
+    backend: ["/api/state", "/api/select-folder"]
+  },
+  tags: {
+    title: "新手说明：Tag 管理",
+    points: [
+      "用于查看与编辑单张图片对应的 .txt 标签内容，支持去重和批量替换。",
+      "编辑后会写回原目录的文本文件，建议先改一条确认格式后再批量处理。",
+      "操作完成后可切回补全页面继续处理不足项。"
+    ],
+    backend: ["/api/tag-results", "/api/tag-save"]
+  },
+  "label-logs": {
+    title: "新手说明：打标日志",
+    points: [
+      "记录每次打标/补全的请求过程、耗时和失败原因，排查问题优先看这里。",
+      "如果出现失败，先看错误阶段（读图、调度、保存）再定位配置。",
+      "日志是会话内状态数据，可在配置中心导出留档。"
+    ],
+    backend: ["/api/state", "/api/dispatch"]
+  },
+  channels: {
+    title: "新手说明：渠道管理",
+    points: [
+      "这里配置各 API 渠道地址与 Key，调度组中的步骤会引用这些渠道。",
+      "建议先点“拉取模型”验证渠道可用，再进入调度组编排。",
+      "同一渠道支持多 Key 轮询，减少单 Key 限流影响。"
+    ],
+    backend: ["/api/models", "/api/state"]
+  },
+  scheduler: {
+    title: "新手说明：调度组-渠道规则",
+    points: [
+      "调度组决定“先用哪个渠道、失败后如何重试、超时多久”。",
+      "全局最小/最大字符数会参与结果校验，不达标会按规则继续重试。",
+      "建议先用少量图片验证规则，再放大批量任务。"
+    ],
+    backend: ["/api/dispatch", "/api/state"]
+  },
+  prompts: {
+    title: "新手说明：提示词预设",
+    points: [
+      "系统提示词用于约束输出风格，用户提示词用于描述任务目标。",
+      "预设保存后可在打标和补全面板一键套用，减少重复输入。",
+      "变更提示词后建议先做一轮小样验证再大批量运行。"
+    ],
+    backend: ["/api/state"]
+  },
+  "config-center": {
+    title: "新手说明：配置中心",
+    points: [
+      "这里用于全局体检、导入导出与清空状态，适合版本管理与迁移。",
+      "“配置概览”看规模，“配置诊断”看问题项，建议先诊断后执行任务。",
+      "清空状态是高影响操作，执行前请先导出备份。"
+    ],
+    backend: ["/api/config/overview", "/api/config/diagnostics", "/api/state"]
+  }
+};
+
+function closeAllPanelHelp() {
+  document.querySelectorAll(".panel-help-note").forEach((note) => {
+    note.classList.add("is-hidden");
+  });
+  document.querySelectorAll(".panel-help-trigger").forEach((btn) => {
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
+function buildPanelHelpNote(panelId, note) {
+  const config = panelHelpConfig[panelId];
+  if (!config || !note) return;
+  note.innerHTML = "";
+
+  const title = document.createElement("h3");
+  title.textContent = config.title;
+
+  const list = document.createElement("ul");
+  (config.points || []).forEach((point) => {
+    const li = document.createElement("li");
+    li.textContent = point;
+    list.appendChild(li);
+  });
+
+  const backend = document.createElement("p");
+  backend.className = "muted panel-help-backend";
+  backend.textContent = `后端关联：${(config.backend || []).join("  ·  ")}`;
+
+  note.append(title, list, backend);
+}
+
+function togglePanelHelp(panelId) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  const note = panel.querySelector(`.panel-help-note[data-panel-id="${panelId}"]`);
+  const trigger = panel.querySelector(`.panel-help-trigger[data-panel-id="${panelId}"]`);
+  if (!note || !trigger) return;
+  const willOpen = note.classList.contains("is-hidden");
+  closeAllPanelHelp();
+  if (willOpen) {
+    note.classList.remove("is-hidden");
+    trigger.setAttribute("aria-expanded", "true");
+  }
+}
+
+function mountPanelHelp() {
+  panels.forEach((panel) => {
+    const panelId = panel.id;
+    if (!panelHelpConfig[panelId]) return;
+    const header = panel.querySelector(".panel-header");
+    if (!header) return;
+
+    let trigger = header.querySelector(`.panel-help-trigger[data-panel-id="${panelId}"]`);
+    if (!trigger) {
+      trigger = document.createElement("button");
+      trigger.type = "button";
+      trigger.className = "panel-help-trigger";
+      trigger.dataset.panelId = panelId;
+      trigger.textContent = "⚪❓";
+      trigger.title = "查看新手注释";
+      trigger.setAttribute("aria-label", "查看新手注释");
+      trigger.setAttribute("aria-expanded", "false");
+      header.appendChild(trigger);
+    }
+
+    let note = panel.querySelector(`.panel-help-note[data-panel-id="${panelId}"]`);
+    if (!note) {
+      note = document.createElement("div");
+      note.className = "panel-help-note is-hidden";
+      note.dataset.panelId = panelId;
+      panel.insertBefore(note, header.nextSibling);
+      buildPanelHelpNote(panelId, note);
+    }
+
+    trigger.addEventListener("click", (event) => {
+      event.stopPropagation();
+      togglePanelHelp(panelId);
+    });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".panel-help-trigger") || event.target.closest(".panel-help-note")) return;
+    closeAllPanelHelp();
+  });
+}
+
+function isMobileSidebarMode() {
+  return window.innerWidth <= MOBILE_SIDEBAR_BREAKPOINT;
+}
+
+function setSidebarOpen(open) {
+  if (!appShell || !sidebarToggle) return;
+  const shouldOpen = isMobileSidebarMode() && Boolean(open);
+  appShell.classList.toggle("sidebar-open", shouldOpen);
+  document.body.classList.toggle("sidebar-lock", shouldOpen);
+  sidebarToggle.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+  sidebarToggle.textContent = shouldOpen ? "✕ 关闭" : "☰ 菜单";
+}
+
+function setOtherSettingsCollapsed(collapsed) {
+  if (!otherSettingsGroup || !otherSettingsToggle) return;
+  otherSettingsGroup.classList.toggle("is-collapsed", collapsed);
+  otherSettingsToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+if (sidebarToggle) {
+  sidebarToggle.addEventListener("click", () => {
+    const nextOpen = !appShell?.classList.contains("sidebar-open");
+    setSidebarOpen(nextOpen);
+  });
+}
+
+if (sidebarBackdrop) {
+  sidebarBackdrop.addEventListener("click", () => {
+    setSidebarOpen(false);
+  });
+}
+
+window.addEventListener("resize", () => {
+  if (!isMobileSidebarMode()) {
+    setSidebarOpen(false);
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && appShell?.classList.contains("sidebar-open")) {
+    setSidebarOpen(false);
+  }
+  if (event.key === "Escape") {
+    closeAllPanelHelp();
+  }
+});
+
+if (otherSettingsToggle) {
+  otherSettingsToggle.addEventListener("click", () => {
+    const collapsed = otherSettingsGroup?.classList.contains("is-collapsed");
+    setOtherSettingsCollapsed(!collapsed);
+  });
+}
+
+mountPanelHelp();
 
 navButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -137,6 +367,13 @@ navButtons.forEach((btn) => {
     panels.forEach((panel) => panel.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById(btn.dataset.target).classList.add("active");
+    closeAllPanelHelp();
+    if (btn.closest("#other-settings-group")) {
+      setOtherSettingsCollapsed(false);
+    }
+    if (isMobileSidebarMode()) {
+      setSidebarOpen(false);
+    }
   });
 });
 
@@ -512,8 +749,290 @@ const configOverviewSummary = document.getElementById("config-overview-summary")
 const configOverviewList = document.getElementById("config-overview-list");
 const configDiagnosticsSummary = document.getElementById("config-diagnostics-summary");
 const configDiagnosticsList = document.getElementById("config-diagnostics-list");
+const themeAccentInput = document.getElementById("theme-accent-input");
+const themeAccent2Input = document.getElementById("theme-accent-2-input");
+const themeBgStartInput = document.getElementById("theme-bg-start-input");
+const themeBgEndInput = document.getElementById("theme-bg-end-input");
+const themeSidebarStartInput = document.getElementById("theme-sidebar-start-input");
+const themeSidebarEndInput = document.getElementById("theme-sidebar-end-input");
+const themeInkInput = document.getElementById("theme-ink-input");
+const themeMutedInput = document.getElementById("theme-muted-input");
+const themeFontFamilyInput = document.getElementById("theme-font-family-input");
+const themeFontSizeInput = document.getElementById("theme-font-size-input");
+const themeHeadingSizeInput = document.getElementById("theme-heading-size-input");
+const themeLineHeightInput = document.getElementById("theme-line-height-input");
+const themePresetSelect = document.getElementById("theme-preset-select");
+const themeApplyPresetBtn = document.getElementById("theme-apply-preset-btn");
+const themeSaveBtn = document.getElementById("theme-save-btn");
+const themeResetBtn = document.getElementById("theme-reset-btn");
+const themeStatus = document.getElementById("theme-status");
 
 const saveStatus = document.getElementById("save-status");
+const THEME_STORAGE_KEY = "jit-theme-config-v1";
+const DEFAULT_THEME = {
+  accent: "#6366f1",
+  accent2: "#8b5cf6",
+  bgStart: "#f8faff",
+  bgEnd: "#eef2ff",
+  sidebarStart: "#0f172a",
+  sidebarEnd: "#1e1b4b",
+  ink: "#0f172a",
+  muted: "#64748b",
+  fontFamily: "SF Pro Display, SF Pro Text, Neue Haas Grotesk, Helvetica Neue, sans-serif",
+  fontSize: 16,
+  headingSize: 30,
+  lineHeight: 1.55
+};
+
+const THEME_PRESETS = [
+  {
+    id: "indigo-glass",
+    name: "靛蓝玻璃",
+    theme: { ...DEFAULT_THEME }
+  },
+  {
+    id: "mint-daylight",
+    name: "薄荷白昼",
+    theme: {
+      ...DEFAULT_THEME,
+      accent: "#0d9488",
+      accent2: "#14b8a6",
+      bgStart: "#f0fdfa",
+      bgEnd: "#ecfeff",
+      sidebarStart: "#134e4a",
+      sidebarEnd: "#115e59",
+      ink: "#0f172a",
+      muted: "#0f766e",
+      fontFamily: "Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif"
+    }
+  },
+  {
+    id: "sunset-paper",
+    name: "落日纸感",
+    theme: {
+      ...DEFAULT_THEME,
+      accent: "#f97316",
+      accent2: "#ef4444",
+      bgStart: "#fff7ed",
+      bgEnd: "#fffbeb",
+      sidebarStart: "#7c2d12",
+      sidebarEnd: "#9a3412",
+      ink: "#3f2f21",
+      muted: "#9a3412",
+      fontFamily: "Source Han Sans SC, PingFang SC, Microsoft YaHei, sans-serif",
+      lineHeight: 1.6
+    }
+  },
+  {
+    id: "forest-notes",
+    name: "林间笔记",
+    theme: {
+      ...DEFAULT_THEME,
+      accent: "#15803d",
+      accent2: "#65a30d",
+      bgStart: "#f7fee7",
+      bgEnd: "#f0fdf4",
+      sidebarStart: "#14532d",
+      sidebarEnd: "#166534",
+      ink: "#1f2937",
+      muted: "#3f6212",
+      fontFamily: "MiSans, Noto Sans SC, PingFang SC, sans-serif",
+      headingSize: 31
+    }
+  }
+];
+
+function normalizeHexColor(value, fallback) {
+  const text = String(value || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(text)) {
+    return text.toLowerCase();
+  }
+  return fallback;
+}
+
+function normalizeFontFamily(value, fallback) {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  return text.slice(0, 160);
+}
+
+function normalizeNumber(value, fallback, min, max, fixed = null) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  const clamped = Math.min(max, Math.max(min, num));
+  if (typeof fixed === "number") {
+    return Number(clamped.toFixed(fixed));
+  }
+  return clamped;
+}
+
+function readThemeForm() {
+  return {
+    accent: normalizeHexColor(themeAccentInput?.value, DEFAULT_THEME.accent),
+    accent2: normalizeHexColor(themeAccent2Input?.value, DEFAULT_THEME.accent2),
+    bgStart: normalizeHexColor(themeBgStartInput?.value, DEFAULT_THEME.bgStart),
+    bgEnd: normalizeHexColor(themeBgEndInput?.value, DEFAULT_THEME.bgEnd),
+    sidebarStart: normalizeHexColor(themeSidebarStartInput?.value, DEFAULT_THEME.sidebarStart),
+    sidebarEnd: normalizeHexColor(themeSidebarEndInput?.value, DEFAULT_THEME.sidebarEnd),
+    ink: normalizeHexColor(themeInkInput?.value, DEFAULT_THEME.ink),
+    muted: normalizeHexColor(themeMutedInput?.value, DEFAULT_THEME.muted),
+    fontFamily: normalizeFontFamily(themeFontFamilyInput?.value, DEFAULT_THEME.fontFamily),
+    fontSize: normalizeNumber(themeFontSizeInput?.value, DEFAULT_THEME.fontSize, 12, 22),
+    headingSize: normalizeNumber(themeHeadingSizeInput?.value, DEFAULT_THEME.headingSize, 22, 42),
+    lineHeight: normalizeNumber(themeLineHeightInput?.value, DEFAULT_THEME.lineHeight, 1.2, 2.0, 2)
+  };
+}
+
+function fillThemeForm(theme) {
+  if (themeAccentInput) themeAccentInput.value = theme.accent;
+  if (themeAccent2Input) themeAccent2Input.value = theme.accent2;
+  if (themeBgStartInput) themeBgStartInput.value = theme.bgStart;
+  if (themeBgEndInput) themeBgEndInput.value = theme.bgEnd;
+  if (themeSidebarStartInput) themeSidebarStartInput.value = theme.sidebarStart;
+  if (themeSidebarEndInput) themeSidebarEndInput.value = theme.sidebarEnd;
+  if (themeInkInput) themeInkInput.value = theme.ink;
+  if (themeMutedInput) themeMutedInput.value = theme.muted;
+  if (themeFontFamilyInput) themeFontFamilyInput.value = theme.fontFamily;
+  if (themeFontSizeInput) themeFontSizeInput.value = String(theme.fontSize);
+  if (themeHeadingSizeInput) themeHeadingSizeInput.value = String(theme.headingSize);
+  if (themeLineHeightInput) themeLineHeightInput.value = String(theme.lineHeight);
+}
+
+function setThemeStatus(message) {
+  if (!themeStatus) return;
+  themeStatus.textContent = message || "";
+}
+
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (!root) return;
+  root.style.setProperty("--theme-accent", theme.accent);
+  root.style.setProperty("--theme-accent-2", theme.accent2);
+  root.style.setProperty("--theme-bg-start", theme.bgStart);
+  root.style.setProperty("--theme-bg-end", theme.bgEnd);
+  root.style.setProperty("--theme-sidebar-start", theme.sidebarStart);
+  root.style.setProperty("--theme-sidebar-end", theme.sidebarEnd);
+  root.style.setProperty("--theme-ink", theme.ink);
+  root.style.setProperty("--theme-muted", theme.muted);
+  root.style.setProperty("--theme-font-family", theme.fontFamily);
+  root.style.setProperty("--theme-font-size", `${theme.fontSize}px`);
+  root.style.setProperty("--theme-heading-size", `${theme.headingSize}px`);
+  root.style.setProperty("--theme-line-height", String(theme.lineHeight));
+}
+
+function readThemeFromStorage() {
+  try {
+    const raw = localStorage.getItem(THEME_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_THEME };
+    const parsed = JSON.parse(raw);
+    return {
+      accent: normalizeHexColor(parsed?.accent, DEFAULT_THEME.accent),
+      accent2: normalizeHexColor(parsed?.accent2, DEFAULT_THEME.accent2),
+      bgStart: normalizeHexColor(parsed?.bgStart, DEFAULT_THEME.bgStart),
+      bgEnd: normalizeHexColor(parsed?.bgEnd, DEFAULT_THEME.bgEnd),
+      sidebarStart: normalizeHexColor(parsed?.sidebarStart, DEFAULT_THEME.sidebarStart),
+      sidebarEnd: normalizeHexColor(parsed?.sidebarEnd, DEFAULT_THEME.sidebarEnd),
+      ink: normalizeHexColor(parsed?.ink, DEFAULT_THEME.ink),
+      muted: normalizeHexColor(parsed?.muted, DEFAULT_THEME.muted),
+      fontFamily: normalizeFontFamily(parsed?.fontFamily, DEFAULT_THEME.fontFamily),
+      fontSize: normalizeNumber(parsed?.fontSize, DEFAULT_THEME.fontSize, 12, 22),
+      headingSize: normalizeNumber(parsed?.headingSize, DEFAULT_THEME.headingSize, 22, 42),
+      lineHeight: normalizeNumber(parsed?.lineHeight, DEFAULT_THEME.lineHeight, 1.2, 2.0, 2)
+    };
+  } catch {
+    return { ...DEFAULT_THEME };
+  }
+}
+
+function saveThemeToStorage(theme) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(theme));
+  } catch {
+    // ignore
+  }
+}
+
+function resetTheme() {
+  applyTheme(DEFAULT_THEME);
+  fillThemeForm(DEFAULT_THEME);
+  try {
+    localStorage.removeItem(THEME_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+  setThemeStatus("已恢复默认主题");
+}
+
+function initThemeCustomizer() {
+  if (!themeSaveBtn || !themeResetBtn) return;
+  const storedTheme = readThemeFromStorage();
+  fillThemeForm(storedTheme);
+  applyTheme(storedTheme);
+
+  const themeInputs = [
+    themeAccentInput,
+    themeAccent2Input,
+    themeBgStartInput,
+    themeBgEndInput,
+    themeSidebarStartInput,
+    themeSidebarEndInput,
+    themeInkInput,
+    themeMutedInput,
+    themeFontFamilyInput,
+    themeFontSizeInput,
+    themeHeadingSizeInput,
+    themeLineHeightInput
+  ];
+
+  if (themePresetSelect) {
+    themePresetSelect.innerHTML = "";
+    const customOption = document.createElement("option");
+    customOption.value = "custom";
+    customOption.textContent = "自定义";
+    themePresetSelect.appendChild(customOption);
+    THEME_PRESETS.forEach((preset) => {
+      const option = document.createElement("option");
+      option.value = preset.id;
+      option.textContent = preset.name;
+      themePresetSelect.appendChild(option);
+    });
+    themePresetSelect.value = "custom";
+  }
+
+  themeInputs.forEach((input) => {
+    if (!input) return;
+    input.addEventListener("input", () => {
+      applyTheme(readThemeForm());
+      if (themePresetSelect) themePresetSelect.value = "custom";
+      setThemeStatus("预览中，点击“保存主题”以持久化");
+    });
+  });
+
+  if (themeApplyPresetBtn) {
+    themeApplyPresetBtn.addEventListener("click", () => {
+      const presetId = themePresetSelect?.value;
+      const preset = THEME_PRESETS.find((item) => item.id === presetId);
+      if (!preset) {
+        setThemeStatus("请选择一个预设后再应用");
+        return;
+      }
+      fillThemeForm(preset.theme);
+      applyTheme(readThemeForm());
+      setThemeStatus(`已应用预设：${preset.name}，点击“保存主题”后永久生效`);
+    });
+  }
+
+  themeSaveBtn.addEventListener("click", () => {
+    const theme = readThemeForm();
+    applyTheme(theme);
+    saveThemeToStorage(theme);
+    setThemeStatus("主题已保存");
+  });
+
+  themeResetBtn.addEventListener("click", () => {
+    resetTheme();
+  });
+}
 
 let promptMode = "system";
 let editingPromptId = null;
@@ -603,8 +1122,8 @@ function applyInjectToMessages(group, baseMessages) {
 }
 
 function syncGlobalRules() {
-  minCharsInput.value = state.globalRules.minChars ?? 200;
-  maxCharsInput.value = state.globalRules.maxChars ?? 200;
+  minCharsInput.value = state.globalRules.minChars ?? 50;
+  maxCharsInput.value = state.globalRules.maxChars ?? 2048;
   autoRetryInput.checked = state.globalRules.autoRetry !== false;
 }
 
@@ -3208,7 +3727,7 @@ function getDefaultState() {
     groups: [],
     scheduleGroups: [],
     tags: {},
-    globalRules: { minChars: 200, maxChars: 200, autoRetry: true },
+    globalRules: { minChars: 50, maxChars: 2048, autoRetry: true },
     prompts: { system: [], user: [] },
     previewResults: [],
     labelLogs: []
@@ -3307,8 +3826,8 @@ function renderConfigOverview() {
     { key: "prompts-total", label: "提示词总数", value: prompts.total || 0 },
     { key: "tags", label: "Tag 分组数量", value: counts.tags || 0 },
     { key: "logs", label: "日志数量", value: counts.logs || 0 },
-    { key: "minChars", label: "最小字符数", value: Number.isFinite(globalRules.minChars) ? globalRules.minChars : 200 },
-    { key: "maxChars", label: "最大字符数", value: Number.isFinite(globalRules.maxChars) ? globalRules.maxChars : 200 },
+    { key: "minChars", label: "最小字符数", value: Number.isFinite(globalRules.minChars) ? globalRules.minChars : 50 },
+    { key: "maxChars", label: "最大字符数", value: Number.isFinite(globalRules.maxChars) ? globalRules.maxChars : 2048 },
     { key: "autoRetry", label: "自动重试", value: globalRules.autoRetry === false ? "关闭" : "开启" }
   ];
 
@@ -3535,6 +4054,7 @@ if (configCenterActions) {
 }
 
 async function init() {
+  initThemeCustomizer();
   await loadState();
   syncGlobalRules();
   renderChannels();
